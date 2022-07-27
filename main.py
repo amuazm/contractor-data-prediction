@@ -195,7 +195,6 @@ df = df[["Date", "ACWP"]]
 df = df.set_index(["Date"])
 df = df.diff().fillna(df)
 df.index = pd.to_datetime(df.index) - pd.tseries.offsets.MonthBegin(1)
-#TODO: Attempt df = df.to_period("M")
 print(df)
 
 pred_start_date = df.index[-1:]
@@ -232,6 +231,3 @@ print(predictions)
 # plt.plot(df.index, df["ACWP"])
 # plt.plot(predictions.index, predictions["ACWP"])
 # plt.show()
-
-# df = df.merge(predictions.to_frame(), left_index=True, right_index=True)
-# print(df)
