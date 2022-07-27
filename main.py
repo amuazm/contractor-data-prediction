@@ -188,46 +188,78 @@ from statsmodels.tsa.arima.model import ARIMA
 import datetime
 from dateutil import relativedelta
 
-df = pd.read_excel("./Files/Output/Result.xlsx", sheet_name="Reports")
+wb_result = load_workbook("./Files/Output/Result.xlsx")
+wb_result.create_sheet("ARIMA")
+ws_arima = wb_result["ARIMA"]
+ws_arima.append(["Project ID", "Date", "ACWP(p)", "BCWP(p)"])
 
-df = df.loc[df["Project ID"] == "Project 253"]
-df = df[["Date", "ACWP"]]
-df = df.set_index(["Date"])
-df = df.diff().fillna(df)
-df.index = pd.to_datetime(df.index) - pd.tseries.offsets.MonthBegin(1)
-print(df)
+df_reports = pd.read_excel("./Files/Output/Result.xlsx", sheet_name="Reports")
 
-pred_start_date = df.index[-1:]
-pred_start_date = pred_start_date.to_pydatetime()[0] + relativedelta.relativedelta(months=1)
-pred_end_date = pred_start_date + relativedelta.relativedelta(months=10)
-print(pred_start_date, pred_end_date)
+for project_id in overall_budgets:
+    print("\n\n\n\n\n\n==========================", project_id, "==========================")
+    # if project_id != "Project 235":
+    #     continue
+    df = df_reports.loc[df_reports["Project ID"] == project_id]
+    df = df[["Date", "ACWP", "BCWP"]]
+    df = df.set_index(["Date"])
+    df = df.diff().fillna(df)
+    df.index = pd.to_datetime(df.index) - pd.tseries.offsets.MonthBegin(1)
+    df = df.asfreq(pd.infer_freq(df.index))
+    # plt.plot(df.index, df["ACWP"])
+    # plt.plot(df.index, df["BCWP"])
+    # plt.show()
 
-# pacf_plot = plot_pacf(df, lags=len(df.index)//2-1, method="ywm")
-i = len(df.index)//3
+    months_passed = len(df)
+    project_duration = durations[project_id]
+    planned_months_left = project_duration - months_passed
+    estimated_month_variance = df_reports.loc[df_reports["Project ID"] == project_id]["VAC(t)"].iloc[-1] # Negative means extra months estimated (behind schedule)
+    months_to_predict = np.ceil(durations[project_id] - len(df) - df_reports.loc[df_reports["Project ID"] == project_id]["VAC(t)"].iloc[-1])
 
-df = df.asfreq(pd.infer_freq(df.index))
-print(df)
+    pred_start_date = df.index[-1:]
+    pred_start_date = pred_start_date.to_pydatetime()[0] + relativedelta.relativedelta(months=1)
+    pred_end_date = pred_start_date + relativedelta.relativedelta(months=months_to_predict)
 
-#TODO: MA and I
-model = ARIMA(df, order=(i+1, 0, 0))
-model_fit = model.fit()
-print(model_fit.summary())
+    lags = len(df.index)//3
 
-predictions = model_fit.predict(start=pred_start_date, end=pred_end_date)
-predictions = predictions.to_frame()
-predictions.index.name = "Date"
-predictions.columns = ["ACWP"]
-# print(predictions)
+    # Split ACWP and BCWP
+    l = []
+    l.append(df.drop(["BCWP"], axis=1))
+    l.append(df.drop(["ACWP"], axis=1))
 
-df = df.cumsum()
-print(df)
+    l2 = []
+    l3 = []
+    try:
+        for df2 in l:
+            # pacf_plot = plot_pacf(df2, lags=lags, method="ywm")
+            # plt.show()
 
-predictions_insert = df.iloc[-1].to_frame().T
-predictions_insert.index.name = "Date"
-predictions = pd.concat([predictions_insert, predictions])
-predictions = predictions.cumsum()
-print(predictions)
+            #TODO: I MA
+            model = ARIMA(df2, order=(lags, 0, 0))
+            model_fit = model.fit()
 
-# plt.plot(df.index, df["ACWP"])
-# plt.plot(predictions.index, predictions["ACWP"])
-# plt.show()
+            predictions = model_fit.predict(start=pred_start_date, end=pred_end_date)
+            predictions = predictions.to_frame()
+            predictions.index.name = "Date"
+            predictions.columns = [list(df2)[0]]
+
+            df2 = df2.cumsum()
+            l3.append(df2)
+
+            predictions_insert = df2.iloc[-1].to_frame().T
+            predictions_insert.index.name = "Date"
+            predictions = pd.concat([predictions_insert, predictions])
+            predictions = predictions.cumsum()
+
+            l2.append(predictions)
+
+        df = pd.concat([l2[0], l2[1]], axis=1)
+
+        for index, row in df.iterrows():
+            ws_arima.append([project_id, index.date(), row["ACWP"], row["BCWP"]])
+    except Exception as e:
+        print(e)
+    for row in ws_arima.iter_rows(min_row=2):
+        row[2].style = "Currency"
+        row[3].style = "Currency"
+
+wb_result.save("./Files/Output/Result.xlsx")
