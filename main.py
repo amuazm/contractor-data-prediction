@@ -33,6 +33,10 @@ ws_reports["F1"].value = "BCWP"
 overall_budgets = {}
 for row in ws_budget.iter_rows(min_row=2):
     overall_budgets[row[0].value] = row[4].value
+# monthly_budgets for later down the line
+monthly_budgets = {}
+for row in ws_budget.iter_rows(min_row=2):
+    monthly_budgets[row[0].value] = row[3].value
 # Multiply
 for row in ws_reports.iter_rows(min_row=2):
     row[5].value = overall_budgets[row[0].value] * row[2].value
@@ -189,9 +193,11 @@ import datetime
 from dateutil import relativedelta
 
 wb_result = load_workbook("./Files/Output/Result.xlsx")
-wb_result.create_sheet("ARIMA")
-ws_arima = wb_result["ARIMA"]
-ws_arima.append(["Project ID", "Date", "ACWP(p)", "BCWP(p)"])
+ws_reports = wb_result["Reports"]
+ws_reports.insert_cols(3, 1)
+ws_reports["C1"] = "Remark"
+for row in ws_reports.iter_rows(min_row=2):
+    row[2].value = "Actual Date"
 
 df_reports = pd.read_excel("./Files/Output/Result.xlsx", sheet_name="Reports")
 
@@ -249,17 +255,74 @@ for project_id in overall_budgets:
             predictions_insert.index.name = "Date"
             predictions = pd.concat([predictions_insert, predictions])
             predictions = predictions.cumsum()
+            predictions = predictions.iloc[1:, :]
 
             l2.append(predictions)
 
         df = pd.concat([l2[0], l2[1]], axis=1)
 
+        reached_one_hundred_percent = False
         for index, row in df.iterrows():
-            ws_arima.append([project_id, index.date(), row["ACWP"], row["BCWP"]])
+            if reached_one_hundred_percent == False:
+                if row["BCWP"] >= overall_budgets[project_id]:
+                    row["BCWP"] = overall_budgets[project_id]
+                    reached_one_hundred_percent = True
+                ws_reports.append([project_id, index.date(), "Forecasted", "", "", row["ACWP"], row["BCWP"]])
     except Exception as e:
         print(e)
-    for row in ws_arima.iter_rows(min_row=2):
-        row[2].style = "Currency"
-        row[3].style = "Currency"
+
+d = {}
+for row in ws_reports.iter_rows(min_row=2):
+    # Completion Percentage
+    if row[3].value == "":
+        row[3].value = row[6].value / overall_budgets[row[0].value]
+
+    # Months Passed
+    if row[0].value not in d:
+        d[row[0].value] = 1
+    else:
+        d[row[0].value] += 1
+    if row[4].value == "":
+        row[4].value = d[row[0].value]
+
+    # BCWS
+    if row[7].value == None:
+        bcws = monthly_budgets[row[0].value] * row[4].value
+        if bcws >= overall_budgets[row[0].value]:
+            bcws = overall_budgets[row[0].value]
+        row[7].value = bcws
+    # CPI
+    if row[8].value == None:
+        row[8].value = row[6].value / row[5].value
+    # CV
+    if row[9].value == None:
+        row[9].value = row[6].value - row[5].value
+    # SPI
+    if row[10].value == None:
+        row[10].value = row[6].value / row[7].value
+    # SV
+    if row[11].value == None:
+        row[11].value = row[6].value - row[7].value
+    # EAC
+    if row[12].value == None:
+        row[12].value = row[5].value + (overall_budgets[row[0].value] - row[6].value) / row[8].value
+    # EAC(t)
+    if row[13].value == None:
+        row[13].value = row[4].value + (max(durations[row[0].value], row[4].value) - row[4].value * row[10].value) / row[10].value
+    # VAC
+    if row[14].value == None:
+        row[14].value = overall_budgets[row[0].value] - row[12].value
+    # VAC(t)
+    if row[15].value == None:
+        row[15].value = durations[row[0].value] - row[13].value
+
+    row[3].style = "Percent"
+    row[5].style = "Currency"
+    row[6].style = "Currency"
+    row[7].style = "Currency"
+    row[9].style = "Currency"
+    row[11].style = "Currency"
+    row[12].style = "Currency"
+    row[14].style = "Currency"
 
 wb_result.save("./Files/Output/Result.xlsx")
