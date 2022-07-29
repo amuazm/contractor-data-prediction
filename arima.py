@@ -37,47 +37,51 @@ df_reports = pd.read_excel("./Files/Output/Result.xlsx", sheet_name="Reports")
 
 # Perform ARIMA for each project
 for project_id in overall_budgets:
-    print("\n\n\n\n\n\n==========================", project_id, "==========================")
-    # if project_id != "Project 235":
+    # if project_id != "Project 251":
     #     continue
+    print("\n\n\n\n\n\n==========================", project_id, "==========================")
     # Filter project ID
-    df = df_reports.loc[df_reports["Project ID"] == project_id]
+    df = df_reports[df_reports["Project ID"] == project_id]
     # Filter Date (Time-Series), ACWP, and BCWP (forecasting these 2 metrics)
     df = df[["Date", "ACWP", "BCWP"]]
     df = df.set_index(["Date"])
-    df = df.diff().fillna(df)
+    # Floor date to start of month for frequency
     df.index = pd.to_datetime(df.index) - pd.tseries.offsets.MonthBegin(1)
     df = df.asfreq(pd.infer_freq(df.index))
+
+    # # Check ACWP and BCWP df before sending into ARIMA
     # plt.plot(df.index, df["ACWP"])
     # plt.plot(df.index, df["BCWP"])
     # plt.show()
 
+    # Calculate number of months to predict based off VAC(t)
     months_passed = len(df)
     project_duration = durations[project_id]
     planned_months_left = project_duration - months_passed
     estimated_month_variance = df_reports.loc[df_reports["Project ID"] == project_id]["VAC(t)"].iloc[-1] # Negative means extra months estimated (behind schedule)
-    months_to_predict = np.ceil(durations[project_id] - len(df) - df_reports.loc[df_reports["Project ID"] == project_id]["VAC(t)"].iloc[-1])
+    months_to_predict = np.ceil(project_duration - months_passed - estimated_month_variance)
 
+    # Start and ending dates of prediction
     pred_start_date = df.index[-1:]
     pred_start_date = pred_start_date.to_pydatetime()[0] + relativedelta.relativedelta(months=1)
     pred_end_date = pred_start_date + relativedelta.relativedelta(months=months_to_predict)
 
+    # Maximum number of lags possible for AR
     lags = len(df.index)//3
 
     # Split ACWP and BCWP
     l = []
-    l.append(df.drop(["BCWP"], axis=1))
-    l.append(df.drop(["ACWP"], axis=1))
+    l.append(df[["ACWP"]])
+    l.append(df[["BCWP"]])
 
     l2 = []
-    l3 = []
     try:
         for df2 in l:
+            # acf_plot = plot_acf(df2, lags=lags)
             # pacf_plot = plot_pacf(df2, lags=lags, method="ywm")
             # plt.show()
 
-            #TODO: I MA
-            model = ARIMA(df2, order=(lags, 0, 0))
+            model = ARIMA(df2, order=(1, 2, 0))
             model_fit = model.fit()
 
             predictions = model_fit.predict(start=pred_start_date, end=pred_end_date)
@@ -85,19 +89,18 @@ for project_id in overall_budgets:
             predictions.index.name = "Date"
             predictions.columns = [list(df2)[0]]
 
-            df2 = df2.cumsum()
-            l3.append(df2)
-
-            predictions_insert = df2.iloc[-1].to_frame().T
-            predictions_insert.index.name = "Date"
-            predictions = pd.concat([predictions_insert, predictions])
-            predictions = predictions.cumsum()
-            predictions = predictions.iloc[1:, :]
-
             l2.append(predictions)
+
+        # combined_for_testing = pd.concat([df, pd.concat([l2[0], l2[1]], axis=1)])
+        # plt.plot(combined_for_testing[["ACWP"]], label="ACWP")
+        # plt.plot(combined_for_testing[["BCWP"]], label="BCWP")
+        # plt.legend()
+        # plt.show()
+        # plt.clf()
 
         df = pd.concat([l2[0], l2[1]], axis=1)
 
+        # Place into excel file
         reached_one_hundred_percent = False
         for index, row in df.iterrows():
             if reached_one_hundred_percent == False:

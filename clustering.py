@@ -5,7 +5,7 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import MinMaxScaler
 from openpyxl import load_workbook
 
-df = pd.read_excel("./Files/Output/Result.xlsx", sheet_name="Reports")
+df = pd.read_excel("./Files/Output/Result_ARIMA.xlsx", sheet_name="Reports")
 
 # Keep actual data, remove forecasted
 df = df[df["Remark"] == "Actual Date"]
